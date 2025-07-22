@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import time
+import random
 
 # Lead flotation lookup tables
 COLLECTOR_LOOKUP = {
@@ -140,6 +141,32 @@ def calculate_performance(collector, air_rate, smbs, ph, luproset, fe_feed_grade
     
     return recovery, grade, iron_grade, carbon_grade, zinc_grade
 
+def update_feed_grades():
+    """Update feed grades with random variation within ±1%"""
+    if 'current_fe_grade' not in st.session_state:
+        st.session_state.current_fe_grade = 11.0
+        st.session_state.current_carbon_grade = 4.5
+        st.session_state.current_zn_grade = 10.5
+    
+    # Random variation within ±1%
+    fe_variation = random.uniform(-1, 1) * st.session_state.current_fe_grade
+    carbon_variation = random.uniform(-1, 1) * st.session_state.current_carbon_grade
+    zn_variation = random.uniform(-1, 1) * st.session_state.current_zn_grade
+    
+    # Apply variations with bounds checking
+    st.session_state.current_fe_grade = max(8.0, min(13.0, 
+        st.session_state.current_fe_grade + fe_variation))
+    st.session_state.current_carbon_grade = max(3.0, min(6.0, 
+        st.session_state.current_carbon_grade + carbon_variation))
+    st.session_state.current_zn_grade = max(8.0, min(13.0, 
+        st.session_state.current_zn_grade + zn_variation))
+
+# Initialize session state for dynamic mode
+if 'dynamic_mode' not in st.session_state:
+    st.session_state.dynamic_mode = False
+if 'feed_history' not in st.session_state:
+    st.session_state.feed_history = []
+
 # Streamlit App
 st.set_page_config(
     page_title="Lead Flotation Simulator",
@@ -148,60 +175,122 @@ st.set_page_config(
 )
 
 st.title("⛏️ Lead Cleaner Flotation Simulator")
-st.caption("Pb cleaners")
+st.caption("Pb cleaners - Manual Training Mode")
+
+# Dynamic mode controls - simplified
+col_mode1, col_mode2, col_mode3 = st.columns([2, 2, 3])
+
+with col_mode1:
+    if st.button("🚀 Start Dynamic Mode" if not st.session_state.dynamic_mode else "⏸️ Stop Dynamic Mode"):
+        st.session_state.dynamic_mode = not st.session_state.dynamic_mode
+        if st.session_state.dynamic_mode:
+            # Initialize current grades if starting
+            if 'current_fe_grade' not in st.session_state:
+                st.session_state.current_fe_grade = 11.0
+                st.session_state.current_carbon_grade = 4.5
+                st.session_state.current_zn_grade = 10.5
+
+with col_mode2:
+    if st.session_state.dynamic_mode:
+        if st.button("🔄 Update Feed Conditions"):
+            update_feed_grades()
+            
+            # Store history for trending
+            st.session_state.feed_history.append({
+                'time': time.time(),
+                'fe_grade': st.session_state.current_fe_grade,
+                'carbon_grade': st.session_state.current_carbon_grade,
+                'zn_grade': st.session_state.current_zn_grade
+            })
+            
+            # Keep only last 20 points
+            if len(st.session_state.feed_history) > 20:
+                st.session_state.feed_history = st.session_state.feed_history[-20:]
+
+with col_mode3:
+    if st.session_state.dynamic_mode:
+        st.info("🔄 Dynamic mode active - Click 'Update Feed Conditions' to change feed grades")
+    else:
+        st.info("⚙️ Manual mode - Use sliders to set feed grades")
 
 # Sidebar controls
 st.sidebar.header("Flotation Parameters")
 
 collector = st.sidebar.slider(
     "Collector Dosage (g/t)",
-    min_value=0, max_value=150, value=0, step=5,
+    min_value=0, max_value=150, value=50, step=5,
     help="Xanthate collector for lead mineral hydrophobicity - also activates zinc minerals"
 )
 
 air_rate = st.sidebar.slider(
     "Air Rate (L/min)",
-    min_value=0, max_value=100, value=0, step=5,
+    min_value=0, max_value=100, value=50, step=5,
     help="Bubble generation rate - increases flotation of all sulfides including zinc"
 )
 
 smbs = st.sidebar.slider(
     "SMBS Dosage (g/t)",
-    min_value=0, max_value=300, value=0, step=10,
+    min_value=0, max_value=300, value=100, step=10,
     help="Sodium Metabisulfite - depresses iron sulfides and zinc minerals"
 )
 
 ph = st.sidebar.slider(
     "pH",
-    min_value=7.0, max_value=10.0, value=7.5, step=0.1,
+    min_value=7.0, max_value=10.0, value=8.5, step=0.1,
     help="Pulp pH - higher pH improves Pb/Zn selectivity"
 )
 
 luproset = st.sidebar.slider(
     "Luproset Dosage (g/t)",
-    min_value=0, max_value=500, value=0, step=25,
+    min_value=0, max_value=500, value=100, step=25,
     help="Luproset depressant - reduces carbon content in lead concentrate"
 )
 
 st.sidebar.header("Feed Composition")
 
-fe_feed_grade = st.sidebar.slider(
-    "Feed Iron Grade (%)",
-    min_value=8.0, max_value=13.0, value=11.0, step=0.5,
-    help="Iron content in feed ore (mainly as pyrite)"
-)
+# Use dynamic grades if in dynamic mode, otherwise use sliders
+if st.session_state.dynamic_mode and 'current_fe_grade' in st.session_state:
+    fe_feed_grade = st.session_state.current_fe_grade
+    carbon_feed_grade = st.session_state.current_carbon_grade
+    zn_feed_grade = st.session_state.current_zn_grade
+    
+    # Display current values with visual indicators
+    st.sidebar.metric(
+        "Feed Iron Grade (%)",
+        f"{fe_feed_grade:.2f}",
+        delta=f"{fe_feed_grade - 11.0:.2f}" if abs(fe_feed_grade - 11.0) > 0.01 else None
+    )
+    
+    st.sidebar.metric(
+        "Feed Carbon Grade (%)",
+        f"{carbon_feed_grade:.2f}",
+        delta=f"{carbon_feed_grade - 4.5:.2f}" if abs(carbon_feed_grade - 4.5) > 0.01 else None
+    )
+    
+    st.sidebar.metric(
+        "Feed Zinc Grade (%)",
+        f"{zn_feed_grade:.2f}",
+        delta=f"{zn_feed_grade - 10.5:.2f}" if abs(zn_feed_grade - 10.5) > 0.01 else None
+    )
+    
+else:
+    fe_feed_grade = st.sidebar.slider(
+        "Feed Iron Grade (%)",
+        min_value=8.0, max_value=13.0, value=11.0, step=0.1,
+        help="Iron content in feed ore (mainly as pyrite)"
+    )
 
-carbon_feed_grade = st.sidebar.slider(
-    "Feed Carbon Grade (%)",
-    min_value=3.0, max_value=6.0, value=4.5, step=0.1,
-    help="Carbon content in feed ore (graphite, organic carbon)"
-)
+    carbon_feed_grade = st.sidebar.slider(
+        "Feed Carbon Grade (%)",
+        min_value=3.0, max_value=6.0, value=4.5, step=0.1,
+        help="Carbon content in feed ore (graphite, organic carbon)"
+    )
 
-zn_feed_grade = st.sidebar.slider(
-    "Feed Zinc Grade (%)",
-    min_value=8.0, max_value=13.0, value=10.5, step=0.5,
-    help="Zinc content in feed ore (sphalerite, zinc-bearing minerals)"
-)
+    zn_feed_grade = st.sidebar.slider(
+        "Feed Zinc Grade (%)",
+        min_value=8.0, max_value=13.0, value=10.5, step=0.1,
+        help="Zinc content in feed ore (sphalerite, zinc-bearing minerals)"
+    )
 
 # Calculate current performance
 recovery, grade, iron_grade, carbon_grade, zinc_grade = calculate_performance(
@@ -215,21 +304,21 @@ with col1:
     st.metric(
         "Lead Recovery", 
         f"{recovery:.1f}%",
-        delta=f"{recovery - 65:.1f}%" if recovery != 65 else None
+        delta=f"{recovery - 65:.1f}%" if abs(recovery - 65) > 0.1 else None
     )
 
 with col2:
     st.metric(
         "Lead Grade", 
         f"{grade:.1f}%",
-        delta=f"{grade - 60:.1f}%" if grade != 60 else None
+        delta=f"{grade - 60:.1f}%" if abs(grade - 60) > 0.1 else None
     )
 
 with col3:
     st.metric(
         "Iron in Conc.", 
         f"{iron_grade:.2f}%",
-        delta=f"{iron_grade - fe_feed_grade:.2f}%" if iron_grade != fe_feed_grade else None,
+        delta=f"{iron_grade - 5.0:.2f}%" if abs(iron_grade - 5.0) > 0.01 else None,
         delta_color="inverse"
     )
 
@@ -237,7 +326,7 @@ with col4:
     st.metric(
         "Carbon in Conc.", 
         f"{carbon_grade:.2f}%",
-        delta=f"{carbon_grade - carbon_feed_grade:.2f}%" if carbon_grade != carbon_feed_grade else None,
+        delta=f"{carbon_grade - 7.0:.2f}%" if abs(carbon_grade - 7.0) > 0.01 else None,
         delta_color="inverse"
     )
 
@@ -245,285 +334,9 @@ with col5:
     st.metric(
         "Zinc in Conc.", 
         f"{zinc_grade:.2f}%",
-        delta=f"{zinc_grade - zn_feed_grade:.2f}%" if zinc_grade != zn_feed_grade else None,
+        delta=f"{zinc_grade - 8.0:.2f}%" if abs(zinc_grade - 8.0) > 0.01 else None,
         delta_color="inverse"
     )
-
-
-# Performance visualization
-col1, col2 = st.columns(2)
-
-with col1:
-    # Grade-Recovery plot with SMBS effect
-    fig1 = go.Figure()
-    
-    # Generate SMBS curve
-    smbs_range = np.linspace(0, 300, 20)
-    recoveries = []
-    grades = []
-    zinc_grades = []
-    
-    for smbs_val in smbs_range:
-        rec, gr, _, _, zn_gr = calculate_performance(collector, air_rate, smbs_val, ph, luproset, 
-                                                   fe_feed_grade, carbon_feed_grade, zn_feed_grade)
-        recoveries.append(rec)
-        grades.append(gr)
-        zinc_grades.append(zn_gr)
-    
-    # Add SMBS curve
-    fig1.add_scatter(
-        x=recoveries, y=grades,
-        mode='lines+markers',
-        name='SMBS Effect Curve',
-        line=dict(color='blue', width=2),
-        marker=dict(size=4)
-    )
-    
-    # Add current operating point
-    fig1.add_scatter(
-        x=[recovery], y=[grade],
-        mode='markers',
-        marker=dict(size=15, color='red', symbol='star'),
-        name='Current Operation'
-    )
-    
-    # Add target zone
-    fig1.add_shape(
-        type="rect",
-        x0=80, y0=55, x1=92, y1=65,
-        fillcolor="lightgreen", opacity=0.3,
-        line=dict(color="green", width=2)
-    )
-    
-    fig1.update_layout(
-        title="Grade-Recovery Performance<br><sub>Green zone shows typical targets</sub>",
-        xaxis_title="Lead Recovery (%)",
-        yaxis_title="Lead Grade (%)",
-        showlegend=True
-    )
-    
-    st.plotly_chart(fig1, use_container_width=True)
-
-with col2:
-    # Zinc contamination vs collector/air rate
-    fig2 = make_subplots(
-        rows=2, cols=1,
-        subplot_titles=('Collector Effect on Zinc Contamination', 'Air Rate Effect on Zinc Contamination'),
-        specs=[[{"secondary_y": True}], [{"secondary_y": True}]]
-    )
-    
-    # Collector range effect
-    collector_range = np.linspace(0, 150, 30)
-    collector_recoveries = []
-    collector_zinc_grades = []
-    
-    for coll_val in collector_range:
-        rec, _, _, _, zn_gr = calculate_performance(coll_val, air_rate, smbs, ph, luproset, 
-                                                  fe_feed_grade, carbon_feed_grade, zn_feed_grade)
-        collector_recoveries.append(rec)
-        collector_zinc_grades.append(zn_gr)
-    
-    # Recovery vs Collector
-    fig2.add_trace(
-        go.Scatter(x=collector_range, y=collector_recoveries, name='Recovery', 
-                  line=dict(color='blue')),
-        row=1, col=1, secondary_y=False
-    )
-    
-    # Zinc grade vs Collector
-    fig2.add_trace(
-        go.Scatter(x=collector_range, y=collector_zinc_grades, name='Zinc Grade', 
-                  line=dict(color='red', width=3)),
-        row=1, col=1, secondary_y=True
-    )
-    
-    # Air rate range effect
-    air_range = np.linspace(0, 100, 30)
-    air_recoveries = []
-    air_zinc_grades = []
-    
-    for air_val in air_range:
-        rec, _, _, _, zn_gr = calculate_performance(collector, air_val, smbs, ph, luproset, 
-                                                  fe_feed_grade, carbon_feed_grade, zn_feed_grade)
-        air_recoveries.append(rec)
-        air_zinc_grades.append(zn_gr)
-    
-    # Recovery vs Air rate
-    fig2.add_trace(
-        go.Scatter(x=air_range, y=air_recoveries, name='Recovery', 
-                  line=dict(color='blue', dash='dash'), showlegend=False),
-        row=2, col=1, secondary_y=False
-    )
-    
-    # Zinc grade vs Air rate
-    fig2.add_trace(
-        go.Scatter(x=air_range, y=air_zinc_grades, name='Zinc Grade', 
-                  line=dict(color='red', dash='dash'), showlegend=False),
-        row=2, col=1, secondary_y=True
-    )
-    
-    # Add current points
-    fig2.add_vline(x=collector, line_dash="dot", line_color="green", row=1, col=1,
-                   annotation_text=f"Current: {collector} g/t")
-    fig2.add_vline(x=air_rate, line_dash="dot", line_color="green", row=2, col=1,
-                   annotation_text=f"Current: {air_rate} L/min")
-    
-    fig2.update_layout(height=500, title_text="Zinc Contamination Effects")
-    fig2.update_yaxes(title_text="Recovery (%)", secondary_y=False, row=1, col=1)
-    fig2.update_yaxes(title_text="Zn Grade (%)", secondary_y=True, row=1, col=1)
-    fig2.update_yaxes(title_text="Recovery (%)", secondary_y=False, row=2, col=1)
-    fig2.update_yaxes(title_text="Zn Grade (%)", secondary_y=True, row=2, col=1)
-    fig2.update_xaxes(title_text="Collector Dosage (g/t)", row=1, col=1)
-    fig2.update_xaxes(title_text="Air Rate (L/min)", row=2, col=1)
-    
-    st.plotly_chart(fig2, use_container_width=True)
-
-# Selectivity analysis
-fig3 = make_subplots(
-    rows=1, cols=2,
-    subplot_titles=('pH Effect on Pb/Zn Selectivity', 'SMBS Effect on Zn Depression'),
-    specs=[[{"secondary_y": True}, {"secondary_y": True}]]
-)
-
-# pH effects on selectivity
-ph_range = np.linspace(7.0, 10.0, 30)
-pb_grades = []
-zn_grades_ph = []
-selectivities = []
-
-for ph_val in ph_range:
-    _, pb_gr, _, _, zn_gr = calculate_performance(collector, air_rate, smbs, ph_val, luproset, 
-                                                fe_feed_grade, carbon_feed_grade, zn_feed_grade)
-    pb_grades.append(pb_gr)
-    zn_grades_ph.append(zn_gr)
-    selectivities.append(pb_gr / zn_gr if zn_gr > 0 else 100)
-
-fig3.add_trace(
-    go.Scatter(x=ph_range, y=pb_grades, name='Pb Grade', line=dict(color='blue')),
-    row=1, col=1, secondary_y=False
-)
-fig3.add_trace(
-    go.Scatter(x=ph_range, y=zn_grades_ph, name='Zn Grade', line=dict(color='red')),
-    row=1, col=1, secondary_y=True
-)
-
-# SMBS effects on zinc
-smbs_range = np.linspace(0, 300, 30)
-smbs_recoveries = []
-smbs_zn_grades = []
-
-for smbs_val in smbs_range:
-    rec, _, _, _, zn_gr = calculate_performance(collector, air_rate, smbs_val, ph, luproset, 
-                                              fe_feed_grade, carbon_feed_grade, zn_feed_grade)
-    smbs_recoveries.append(rec)
-    smbs_zn_grades.append(zn_gr)
-
-fig3.add_trace(
-    go.Scatter(x=smbs_range, y=smbs_recoveries, name='Recovery', line=dict(color='blue', dash='dash')),
-    row=1, col=2, secondary_y=False
-)
-fig3.add_trace(
-    go.Scatter(x=smbs_range, y=smbs_zn_grades, name='Zn Grade', line=dict(color='red', dash='dash')),
-    row=1, col=2, secondary_y=True
-)
-
-fig3.update_layout(height=400, title_text="Selectivity Control")
-fig3.update_yaxes(title_text="Pb Grade (%)", secondary_y=False, row=1, col=1)
-fig3.update_yaxes(title_text="Zn Grade (%)", secondary_y=True, row=1, col=1)
-fig3.update_yaxes(title_text="Recovery (%)", secondary_y=False, row=1, col=2)
-fig3.update_yaxes(title_text="Zn Grade (%)", secondary_y=True, row=1, col=2)
-fig3.update_xaxes(title_text="pH", row=1, col=1)
-fig3.update_xaxes(title_text="SMBS Dosage (g/t)", row=1, col=2)
-
-st.plotly_chart(fig3, use_container_width=True)
-
-# Real-time trends - Updated to include zinc
-if 'pb_history' not in st.session_state:
-    st.session_state.pb_history = []
-
-# Only add to history when parameters change
-current_params = (collector, air_rate, smbs, ph, luproset, fe_feed_grade, carbon_feed_grade, zn_feed_grade)
-if 'pb_last_params' not in st.session_state or st.session_state.pb_last_params != current_params:
-    st.session_state.pb_history.append({
-        'time': len(st.session_state.pb_history),
-        'recovery': recovery,
-        'grade': grade,
-        'iron_grade': iron_grade,
-        'carbon_grade': carbon_grade,
-        'zinc_grade': zinc_grade,
-        'smbs': smbs,
-        'luproset': luproset,
-        'selectivity': grade/zinc_grade if zinc_grade > 0 else 100
-    })
-    st.session_state.pb_last_params = current_params
-
-# Keep only last 50 points
-if len(st.session_state.pb_history) > 50:
-    st.session_state.pb_history = st.session_state.pb_history[-50:]
-
-# Trends plot - Updated to include zinc
-if len(st.session_state.pb_history) > 1:
-    df_history = pd.DataFrame(st.session_state.pb_history)
-    
-    fig4 = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Recovery Trend', 'Grade Trends', 'Contaminants (Fe, C, Zn)', 'Selectivity Index'),
-        specs=[[{"secondary_y": False}, {"secondary_y": True}],
-               [{"secondary_y": True}, {"secondary_y": False}]]
-    )
-    
-    # Recovery trend
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['recovery'], 
-                  name='Recovery', line=dict(color='blue')),
-        row=1, col=1
-    )
-    
-    # Grade trends
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['grade'], 
-                  name='Pb Grade', line=dict(color='red')),
-        row=1, col=2, secondary_y=False
-    )
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['zinc_grade'], 
-                  name='Zn Grade', line=dict(color='orange')),
-        row=1, col=2, secondary_y=True
-    )
-    
-    # Contaminants trends
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['iron_grade'], 
-                  name='Iron', line=dict(color='brown')),
-        row=2, col=1, secondary_y=False
-    )
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['carbon_grade'], 
-                  name='Carbon', line=dict(color='black')),
-        row=2, col=1, secondary_y=True
-    )
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['zinc_grade'], 
-                  name='Zinc', line=dict(color='orange', dash='dot')),
-        row=2, col=1, secondary_y=True
-    )
-    
-    # Selectivity index
-    fig4.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['selectivity'], 
-                  name='Pb/Zn Selectivity', line=dict(color='purple')),
-        row=2, col=2
-    )
-    
-    fig4.update_layout(height=500, title_text="Process Trends")
-    fig4.update_yaxes(title_text="Recovery (%)", row=1, col=1)
-    fig4.update_yaxes(title_text="Pb Grade (%)", secondary_y=False, row=1, col=2)
-    fig4.update_yaxes(title_text="Zn Grade (%)", secondary_y=True, row=1, col=2)
-    fig4.update_yaxes(title_text="Fe Grade (%)", secondary_y=False, row=2, col=1)
-    fig4.update_yaxes(title_text="C & Zn Grade (%)", secondary_y=True, row=2, col=1)
-    fig4.update_yaxes(title_text="Selectivity Ratio", row=2, col=2)
-    
-    st.plotly_chart(fig4, use_container_width=True)
 
 # Educational information - Updated with zinc information
 with st.expander("📚 Understanding Depressants and Selectivity in Lead Flotation"):
@@ -553,13 +366,13 @@ with st.expander("📚 Understanding Depressants and Selectivity in Lead Flotati
     
     with col3:
         st.write("""
-        **Zinc Contamination Control:**
+        **Dynamic Training Mode:**
         
-        - **Source**: Sphalerite (ZnS) activated by xanthate collectors
-        - **pH Control**: Higher pH improves Pb/Zn selectivity
-        - **SMBS Effect**: Depresses zinc minerals effectively
-        - **Collector Control**: Lower collector reduces zinc activation
-        - **Air Rate**: Higher air increases zinc flotation
+        - **Simulates**: Real ore variability encountered in operations
+        - **Feed Changes**: ±1% variation with each button click
+        - **Operator Challenge**: Maintain performance despite feed changes
+        - **Key Skills**: Quick response to grade variations
+        - **Target**: Pb/Zn ratio >15 for good selectivity
         """)
 
     st.write("""
@@ -569,9 +382,12 @@ with st.expander("📚 Understanding Depressants and Selectivity in Lead Flotati
     3. **Collector Management**: Optimize collector to minimize zinc activation while maintaining lead recovery
     4. **Air Rate Balance**: Control air rate to avoid excessive zinc flotation
     5. **Monitor Selectivity Index**: Target Pb/Zn ratio > 15 for good selectivity
+    6. **Dynamic Response**: Adjust reagents quickly when feed composition changes
     """)
 
+
 # Reset button
-if st.button("Reset Trends"):
-    st.session_state.pb_history = []
+if st.button("Reset All Trends"):
+    st.session_state.feed_history = []
+    st.session_state.dynamic_mode = False
     st.rerun()
